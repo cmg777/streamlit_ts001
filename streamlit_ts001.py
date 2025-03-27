@@ -90,8 +90,8 @@ selected_variables = st.sidebar.multiselect(
 # --- Data Processing & Plotting ---
 st.header(f"Individual Plots for {selected_country} ({start_year}-{end_year})")
 
-# List to store dataframes for download
-download_data_list = []
+# List to store dataframes (long format) for processing
+processed_data_list = []
 
 if not year_columns_filtered:
     st.warning("Selected time period does not contain any data.")
@@ -135,17 +135,16 @@ else:
                     plot_title = f"{var_name} (Annual Growth %)"
 
                 if processed_values is not None:
-                    # Create a temporary dataframe for this variable
+                    # Create a temporary dataframe (long format) for this variable
                     temp_df = pd.DataFrame({
-                        'Year': [int(yr) for yr in year_columns_filtered], # Store year as integer
-                        # 'Year_dt': pd.to_datetime([yr for yr in year_columns_filtered], format='%Y'), # Keep datetime for plotting
+                        'Year': [int(yr) for yr in year_columns_filtered],
                         'Variable': var_name,
                         'Value': processed_values.values,
-                    }).dropna(subset=['Value']) # Drop rows where Value is NaN
+                    }).dropna(subset=['Value'])
 
                     if not temp_df.empty:
-                         # Add data to list for final download dataframe
-                        download_data_list.append(temp_df.copy())
+                         # Add data to list for final processing
+                        processed_data_list.append(temp_df.copy())
 
                         # Create the plot for this specific variable using datetime years
                         plot_df_display = temp_df.assign(Year_dt=pd.to_datetime(temp_df['Year'], format='%Y'))
@@ -156,13 +155,11 @@ else:
                             title=plot_title,
                             markers=True
                         )
-
                         fig_variable.update_layout(
                             xaxis_title="Year",
                             yaxis_title="", # No Y-axis title
                             height=400
                         )
-
                         # Display the plot in Streamlit
                         st.plotly_chart(fig_variable, use_container_width=True)
                         charts_plotted += 1
@@ -181,26 +178,47 @@ else:
          st.warning("No charts could be generated based on the current selections and data.")
 
     # --- Download Section ---
-    if download_data_list:
+    if processed_data_list: # Check if there's any data collected
         st.markdown("---") # Separator line
         st.header("Download Visualized Data")
 
-        # Combine all collected data into one DataFrame
-        final_df_for_download = pd.concat(download_data_list, ignore_index=True)
-        # Pivot for a potentially wider format (optional, long is often better)
-        # final_df_wide = final_df_for_download.pivot(index='Year', columns='Variable', values='Value').reset_index()
+        # 1. Combine all collected data (long format)
+        final_df_long = pd.concat(processed_data_list, ignore_index=True)
+
+        # 2. Pivot to wide format
+        try:
+            df_wide = final_df_long.pivot(index='Year', columns='Variable', values='Value')
+        except Exception as e:
+            # Handle potential duplicate Year-Variable pairs if logic upstream changes
+            st.error(f"Error pivoting data for download: {e}. Using long format instead.")
+            df_wide = final_df_long # Fallback to long format if pivot fails
+
+        if 'Year' not in df_wide.columns: # If pivot was successful, Year is the index
+             df_wide = df_wide.reset_index() # Make Year a column
+
+        # 3. Add Country column
+        df_wide['Country'] = selected_country
+
+        # 4. Reorder columns: Year, Country, then variables in the specified order
+        # Get the variable columns actually present after pivoting and filtering
+        present_vars_in_order = [var for var in VARIABLE_ORDER if var in df_wide.columns]
+        # Define final column order
+        final_column_order = ['Year', 'Country'] + present_vars_in_order
+        # Select and reorder
+        df_wide_download = df_wide[final_column_order]
+
 
         # Prepare filenames
-        country_short = selected_country.split(" ")[0].replace(",", "").replace("(", "").replace(")", "") # Basic cleaning for filename
-        filename_base = f"{country_short}_{transformation.replace(' (%)','_pct').replace(' ','_')}_{start_year}_{end_year}"
+        country_short = selected_country.split(" ")[0].replace(",", "").replace("(", "").replace(")", "")
+        filename_base = f"{country_short}_{transformation.replace(' (%)','_pct').replace(' ','_')}_{start_year}_{end_year}_wide"
 
-        col1, col2 = st.columns(2) # Layout buttons side-by-side
+        col1, col2 = st.columns(2)
 
         with col1:
             # CSV Download Button
-            csv_data = final_df_for_download.to_csv(index=False).encode('utf-8')
+            csv_data = df_wide_download.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="Download Data as CSV",
+                label="Download Data as CSV (Wide)",
                 data=csv_data,
                 file_name=f"{filename_base}.csv",
                 mime='text/csv',
@@ -208,18 +226,19 @@ else:
 
         with col2:
             # Stata Download Button
-            # Use BytesIO buffer to hold the Stata file data in memory
             stata_buffer = io.BytesIO()
             try:
-                # Need to handle potential Stata variable name length limits if variable names are very long
-                # For simplicity, we assume pandas handles basic conversion well enough
-                final_df_for_download.to_stata(stata_buffer, write_index=False, version=118) # Specify a common Stata version
-                stata_buffer.seek(0) # Rewind buffer to the beginning
+                # Clean column names for Stata compatibility (basic cleaning)
+                clean_columns = {col: col.replace('(','').replace(')','').replace('.','').replace('$','').replace('%','pct').replace(' ','_')[:32] for col in df_wide_download.columns}
+                df_stata_download = df_wide_download.rename(columns=clean_columns)
+
+                df_stata_download.to_stata(stata_buffer, write_index=False, version=118)
+                stata_buffer.seek(0)
                 st.download_button(
-                    label="Download Data as Stata (.dta)",
+                    label="Download Data as Stata (Wide, .dta)",
                     data=stata_buffer,
                     file_name=f"{filename_base}.dta",
-                    mime='application/octet-stream', # Generic binary mime type
+                    mime='application/octet-stream',
                  )
             except Exception as e:
                  st.error(f"Could not generate Stata file: {e}")
