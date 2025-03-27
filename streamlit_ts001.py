@@ -225,7 +225,7 @@ else:
             # CSV Download Button
             csv_data = df_wide_download.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="Download Data as CSV (Wide)",
+                label="Download Data as CSV",
                 data=csv_data,
                 file_name=f"{filename_base}.csv",
                 mime='text/csv',
@@ -240,7 +240,7 @@ else:
                 df_stata_download.to_stata(stata_buffer, write_index=False, version=118)
                 stata_buffer.seek(0)
                 st.download_button(
-                    label="Download Data as Stata (Wide, .dta)",
+                    label="Download Data as Stata (.dta)",
                     data=stata_buffer,
                     file_name=f"{filename_base}.dta",
                     mime='application/octet-stream',
