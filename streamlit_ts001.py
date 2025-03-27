@@ -76,6 +76,7 @@ selected_variables = st.sidebar.multiselect(
 )
 
 # --- Data Processing & Plotting ---
+# Main header remains
 st.header(f"Individual Plots for {selected_country} ({start_year}-{end_year})")
 
 if not year_columns_filtered:
@@ -87,7 +88,7 @@ else:
     warnings = []
 
     for var_name in selected_variables:
-        st.subheader(f"{var_name}") # Add subheader for each variable's plot
+        # REMOVED: st.subheader(f"{var_name}") # Removed subheader
 
         df_variable = df_country[df_country['Variable name'] == var_name]
         if not df_variable.empty:
@@ -100,32 +101,29 @@ else:
 
             # Apply Transformation
             processed_values = None
-            y_axis_label = transformation # Default Y axis label based on transformation
+            plot_title = f"{var_name} ({transformation})" # Keep variable in plot title
 
             if transformation == 'Raw Values':
-                processed_values = time_series_numeric.fillna(0) # Fill NaN after ensuring numeric
-                y_axis_label = var_name # Use variable name for Raw Values Y axis
+                processed_values = time_series_numeric.fillna(0)
+                plot_title = f"{var_name}" # Simpler title for raw values
 
             elif transformation == 'Logarithm':
-                # Replace non-positive values with NaN before taking log
                 positive_values = time_series_numeric.where(time_series_numeric > 0)
                 if time_series_numeric.le(0).any():
                      warnings.append(f"Warning: Non-positive values found for '{var_name}' cannot be plotted on log scale.")
-                processed_values = np.log(positive_values) # NaNs will propagate
-                y_axis_label = f"Log({var_name})"
+                processed_values = np.log(positive_values)
+                plot_title = f"Log({var_name})"
 
             elif transformation == 'Annual Growth Rate (%)':
                 processed_values = time_series_numeric.pct_change() * 100
-                # First value will be NaN due to pct_change, which is expected
-                y_axis_label = f"{var_name} (Annual Growth %)"
+                plot_title = f"{var_name} (Annual Growth %)"
 
             if processed_values is not None:
                 # Create a temporary dataframe for this variable
                 temp_df = pd.DataFrame({
-                    # Convert filtered years to datetime objects
                     'Year': pd.to_datetime([yr for yr in year_columns_filtered], format='%Y'),
                     'Value': processed_values.values,
-                }).dropna(subset=['Value']) # Drop rows where Value is NaN (esp. for log/growth rate)
+                }).dropna(subset=['Value'])
 
                 if not temp_df.empty:
                     # Create the plot for this specific variable
@@ -133,14 +131,14 @@ else:
                         temp_df,
                         x='Year',
                         y='Value',
-                        title=f"{var_name} ({transformation})", # Title specific to variable and transformation
-                        markers=True # Optional: Add markers
+                        title=plot_title, # Use the generated plot title
+                        markers=True
                     )
 
                     fig_variable.update_layout(
                         xaxis_title="Year",
-                        yaxis_title=y_axis_label, # Use specific Y axis label
-                        height=400 # Adjust height for individual plots
+                        yaxis_title="", # REMOVED Y-axis title
+                        height=400
                     )
 
                     # Display the plot in Streamlit
