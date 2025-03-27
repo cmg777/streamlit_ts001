@@ -21,7 +21,7 @@ VARIABLE_ORDER = [
 ]
 
 st.set_page_config(layout="wide")
-st.title("Interactive Time Series Visualization")
+st.title("Time Series for Growth Accounting Analysis")
 
 # --- Load Data ---
 @st.cache_data # Cache data loading for performance
