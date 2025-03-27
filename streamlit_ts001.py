@@ -8,6 +8,17 @@ import os # To check if file exists
 DATA_FILE = 'growthAccounting.csv'
 DEFAULT_COUNTRY = 'Bolivia (Plurinational State of)'
 
+# --- Define Fixed Variable Order ---
+VARIABLE_ORDER = [
+    'Real GDP at constant 2017 national prices (in mil. 2017US$)',
+    'Capital services at constant 2017 national prices (2017=1)',
+    'Number of persons engaged (in millions)',
+    'Average annual hours worked by persons engaged',
+    'Human capital index, based on years of schooling and returns to education; see Human capital in PWT9.',
+    'Share of labour compensation in GDP at current national prices',
+    'TFP at constant national prices (2017=1)'
+]
+
 st.set_page_config(layout="wide")
 st.title("Interactive Time Series Visualization")
 
@@ -67,16 +78,15 @@ transformation = st.sidebar.radio(
     key='transformation'
 )
 
-# Variable Selection
+# Variable Selection - Allow user to select any available, but display order will be fixed
 available_variables = sorted(df_country['Variable name'].unique())
 selected_variables = st.sidebar.multiselect(
     "Select Variables to Plot",
     available_variables,
-    default=available_variables # Default to all variables
+    default=available_variables # Default to all available variables initially
 )
 
 # --- Data Processing & Plotting ---
-# Main header remains
 st.header(f"Individual Plots for {selected_country} ({start_year}-{end_year})")
 
 if not year_columns_filtered:
@@ -87,69 +97,78 @@ else:
     charts_plotted = 0
     warnings = []
 
-    for var_name in selected_variables:
-        # REMOVED: st.subheader(f"{var_name}") # Removed subheader
+    # --- Iterate through the FIXED order ---
+    for var_name in VARIABLE_ORDER:
+        # --- Check if this variable was actually selected by the user ---
+        if var_name in selected_variables:
 
-        df_variable = df_country[df_country['Variable name'] == var_name]
-        if not df_variable.empty:
-            # Extract the specific row for the variable, focusing on selected years
-            data_row = df_variable.iloc[0]
-            time_series_raw = data_row[year_columns_filtered]
+            df_variable = df_country[df_country['Variable name'] == var_name]
+            if not df_variable.empty:
+                # Extract the specific row for the variable, focusing on selected years
+                data_row = df_variable.iloc[0]
+                time_series_raw = data_row[year_columns_filtered]
 
-            # Convert to numeric, coercing errors, but DO NOT fillna yet for transformations
-            time_series_numeric = pd.to_numeric(time_series_raw, errors='coerce')
+                # Convert to numeric, coercing errors, but DO NOT fillna yet for transformations
+                time_series_numeric = pd.to_numeric(time_series_raw, errors='coerce')
 
-            # Apply Transformation
-            processed_values = None
-            plot_title = f"{var_name} ({transformation})" # Keep variable in plot title
+                # Apply Transformation
+                processed_values = None
+                plot_title = f"{var_name} ({transformation})" # Default plot title
 
-            if transformation == 'Raw Values':
-                processed_values = time_series_numeric.fillna(0)
-                plot_title = f"{var_name}" # Simpler title for raw values
+                if transformation == 'Raw Values':
+                    processed_values = time_series_numeric.fillna(0)
+                    plot_title = f"{var_name}" # Simpler title for raw values
 
-            elif transformation == 'Logarithm':
-                positive_values = time_series_numeric.where(time_series_numeric > 0)
-                if time_series_numeric.le(0).any():
-                     warnings.append(f"Warning: Non-positive values found for '{var_name}' cannot be plotted on log scale.")
-                processed_values = np.log(positive_values)
-                plot_title = f"Log({var_name})"
+                elif transformation == 'Logarithm':
+                    positive_values = time_series_numeric.where(time_series_numeric > 0)
+                    if time_series_numeric.le(0).any():
+                         warnings.append(f"Warning: Non-positive values found for '{var_name}' cannot be plotted on log scale.")
+                    processed_values = np.log(positive_values)
+                    plot_title = f"Log({var_name})"
 
-            elif transformation == 'Annual Growth Rate (%)':
-                processed_values = time_series_numeric.pct_change() * 100
-                plot_title = f"{var_name} (Annual Growth %)"
+                elif transformation == 'Annual Growth Rate (%)':
+                    processed_values = time_series_numeric.pct_change() * 100
+                    plot_title = f"{var_name} (Annual Growth %)"
 
-            if processed_values is not None:
-                # Create a temporary dataframe for this variable
-                temp_df = pd.DataFrame({
-                    'Year': pd.to_datetime([yr for yr in year_columns_filtered], format='%Y'),
-                    'Value': processed_values.values,
-                }).dropna(subset=['Value'])
+                if processed_values is not None:
+                    # Create a temporary dataframe for this variable
+                    temp_df = pd.DataFrame({
+                        'Year': pd.to_datetime([yr for yr in year_columns_filtered], format='%Y'),
+                        'Value': processed_values.values,
+                    }).dropna(subset=['Value'])
 
-                if not temp_df.empty:
-                    # Create the plot for this specific variable
-                    fig_variable = px.line(
-                        temp_df,
-                        x='Year',
-                        y='Value',
-                        title=plot_title, # Use the generated plot title
-                        markers=True
-                    )
+                    if not temp_df.empty:
+                        # Create the plot for this specific variable
+                        fig_variable = px.line(
+                            temp_df,
+                            x='Year',
+                            y='Value',
+                            title=plot_title, # Use the generated plot title
+                            markers=True
+                        )
 
-                    fig_variable.update_layout(
-                        xaxis_title="Year",
-                        yaxis_title="", # REMOVED Y-axis title
-                        height=400
-                    )
+                        fig_variable.update_layout(
+                            xaxis_title="Year",
+                            yaxis_title="", # No Y-axis title
+                            height=400
+                        )
 
-                    # Display the plot in Streamlit
-                    st.plotly_chart(fig_variable, use_container_width=True)
-                    charts_plotted += 1
+                        # Display the plot in Streamlit
+                        st.plotly_chart(fig_variable, use_container_width=True)
+                        charts_plotted += 1
+                    else:
+                         warnings.append(f"No valid data points to plot for '{var_name}' after transformation and filtering.")
                 else:
-                     warnings.append(f"No valid data points to plot for '{var_name}' after transformation and filtering.")
+                     warnings.append(f"Could not process data for '{var_name}' with selected transformation.")
             else:
-                 warnings.append(f"Could not process data for '{var_name}' with selected transformation.")
-        else:
-             warnings.append(f"Could not find data for variable '{var_name}' for {selected_country}.")
+                 # This case might occur if a variable in VARIABLE_ORDER is not in the CSV for the selected country
+                 warnings.append(f"Data for '{var_name}' not found for {selected_country}.")
+
+    # Handle variables selected by user but not in the fixed order list (optional, currently ignored)
+    # You could add a separate loop here if you want to display these at the end:
+    # for var_name in selected_variables:
+    #     if var_name not in VARIABLE_ORDER:
+    #         # ... (plotting logic similar to above) ...
 
     # Display Warnings (only unique ones)
     for warning in set(warnings):
