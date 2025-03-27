@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 import os # To check if file exists
+import io # For in-memory file handling for download
 
 # --- Configuration ---
 DATA_FILE = 'growthAccounting.csv'
@@ -89,6 +90,9 @@ selected_variables = st.sidebar.multiselect(
 # --- Data Processing & Plotting ---
 st.header(f"Individual Plots for {selected_country} ({start_year}-{end_year})")
 
+# List to store dataframes for download
+download_data_list = []
+
 if not year_columns_filtered:
     st.warning("Selected time period does not contain any data.")
 elif not selected_variables:
@@ -133,17 +137,23 @@ else:
                 if processed_values is not None:
                     # Create a temporary dataframe for this variable
                     temp_df = pd.DataFrame({
-                        'Year': pd.to_datetime([yr for yr in year_columns_filtered], format='%Y'),
+                        'Year': [int(yr) for yr in year_columns_filtered], # Store year as integer
+                        # 'Year_dt': pd.to_datetime([yr for yr in year_columns_filtered], format='%Y'), # Keep datetime for plotting
+                        'Variable': var_name,
                         'Value': processed_values.values,
-                    }).dropna(subset=['Value'])
+                    }).dropna(subset=['Value']) # Drop rows where Value is NaN
 
                     if not temp_df.empty:
-                        # Create the plot for this specific variable
+                         # Add data to list for final download dataframe
+                        download_data_list.append(temp_df.copy())
+
+                        # Create the plot for this specific variable using datetime years
+                        plot_df_display = temp_df.assign(Year_dt=pd.to_datetime(temp_df['Year'], format='%Y'))
                         fig_variable = px.line(
-                            temp_df,
-                            x='Year',
+                            plot_df_display,
+                            x='Year_dt', # Plot against datetime axis
                             y='Value',
-                            title=plot_title, # Use the generated plot title
+                            title=plot_title,
                             markers=True
                         )
 
@@ -161,14 +171,7 @@ else:
                 else:
                      warnings.append(f"Could not process data for '{var_name}' with selected transformation.")
             else:
-                 # This case might occur if a variable in VARIABLE_ORDER is not in the CSV for the selected country
                  warnings.append(f"Data for '{var_name}' not found for {selected_country}.")
-
-    # Handle variables selected by user but not in the fixed order list (optional, currently ignored)
-    # You could add a separate loop here if you want to display these at the end:
-    # for var_name in selected_variables:
-    #     if var_name not in VARIABLE_ORDER:
-    #         # ... (plotting logic similar to above) ...
 
     # Display Warnings (only unique ones)
     for warning in set(warnings):
@@ -176,3 +179,47 @@ else:
 
     if charts_plotted == 0 and selected_variables:
          st.warning("No charts could be generated based on the current selections and data.")
+
+    # --- Download Section ---
+    if download_data_list:
+        st.markdown("---") # Separator line
+        st.header("Download Visualized Data")
+
+        # Combine all collected data into one DataFrame
+        final_df_for_download = pd.concat(download_data_list, ignore_index=True)
+        # Pivot for a potentially wider format (optional, long is often better)
+        # final_df_wide = final_df_for_download.pivot(index='Year', columns='Variable', values='Value').reset_index()
+
+        # Prepare filenames
+        country_short = selected_country.split(" ")[0].replace(",", "").replace("(", "").replace(")", "") # Basic cleaning for filename
+        filename_base = f"{country_short}_{transformation.replace(' (%)','_pct').replace(' ','_')}_{start_year}_{end_year}"
+
+        col1, col2 = st.columns(2) # Layout buttons side-by-side
+
+        with col1:
+            # CSV Download Button
+            csv_data = final_df_for_download.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Data as CSV",
+                data=csv_data,
+                file_name=f"{filename_base}.csv",
+                mime='text/csv',
+            )
+
+        with col2:
+            # Stata Download Button
+            # Use BytesIO buffer to hold the Stata file data in memory
+            stata_buffer = io.BytesIO()
+            try:
+                # Need to handle potential Stata variable name length limits if variable names are very long
+                # For simplicity, we assume pandas handles basic conversion well enough
+                final_df_for_download.to_stata(stata_buffer, write_index=False, version=118) # Specify a common Stata version
+                stata_buffer.seek(0) # Rewind buffer to the beginning
+                st.download_button(
+                    label="Download Data as Stata (.dta)",
+                    data=stata_buffer,
+                    file_name=f"{filename_base}.dta",
+                    mime='application/octet-stream', # Generic binary mime type
+                 )
+            except Exception as e:
+                 st.error(f"Could not generate Stata file: {e}")
