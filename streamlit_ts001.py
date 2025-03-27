@@ -76,17 +76,19 @@ selected_variables = st.sidebar.multiselect(
 )
 
 # --- Data Processing & Plotting ---
-st.header(f"{transformation} for {selected_country} ({start_year}-{end_year})")
+st.header(f"Individual Plots for {selected_country} ({start_year}-{end_year})")
 
 if not year_columns_filtered:
     st.warning("Selected time period does not contain any data.")
 elif not selected_variables:
     st.warning("Please select at least one variable to plot.")
 else:
-    plot_data_list = []
+    charts_plotted = 0
     warnings = []
 
     for var_name in selected_variables:
+        st.subheader(f"{var_name}") # Add subheader for each variable's plot
+
         df_variable = df_country[df_country['Variable name'] == var_name]
         if not df_variable.empty:
             # Extract the specific row for the variable, focusing on selected years
@@ -98,11 +100,11 @@ else:
 
             # Apply Transformation
             processed_values = None
-            y_axis_label = f"{var_name} ({transformation})"
+            y_axis_label = transformation # Default Y axis label based on transformation
 
             if transformation == 'Raw Values':
                 processed_values = time_series_numeric.fillna(0) # Fill NaN after ensuring numeric
-                y_axis_label = var_name
+                y_axis_label = var_name # Use variable name for Raw Values Y axis
 
             elif transformation == 'Logarithm':
                 # Replace non-positive values with NaN before taking log
@@ -123,44 +125,37 @@ else:
                     # Convert filtered years to datetime objects
                     'Year': pd.to_datetime([yr for yr in year_columns_filtered], format='%Y'),
                     'Value': processed_values.values,
-                    'Variable': var_name
                 }).dropna(subset=['Value']) # Drop rows where Value is NaN (esp. for log/growth rate)
 
                 if not temp_df.empty:
-                    plot_data_list.append(temp_df)
+                    # Create the plot for this specific variable
+                    fig_variable = px.line(
+                        temp_df,
+                        x='Year',
+                        y='Value',
+                        title=f"{var_name} ({transformation})", # Title specific to variable and transformation
+                        markers=True # Optional: Add markers
+                    )
+
+                    fig_variable.update_layout(
+                        xaxis_title="Year",
+                        yaxis_title=y_axis_label, # Use specific Y axis label
+                        height=400 # Adjust height for individual plots
+                    )
+
+                    # Display the plot in Streamlit
+                    st.plotly_chart(fig_variable, use_container_width=True)
+                    charts_plotted += 1
+                else:
+                     warnings.append(f"No valid data points to plot for '{var_name}' after transformation and filtering.")
             else:
                  warnings.append(f"Could not process data for '{var_name}' with selected transformation.")
+        else:
+             warnings.append(f"Could not find data for variable '{var_name}' for {selected_country}.")
 
-    # Display Warnings
-    for warning in set(warnings): # Use set to avoid duplicate warnings
+    # Display Warnings (only unique ones)
+    for warning in set(warnings):
         st.warning(warning)
 
-    # Create Plot
-    if plot_data_list:
-        # Combine data for all selected variables
-        plot_df = pd.concat(plot_data_list)
-
-        # Use the y_axis_label from the last processed variable (they should be consistent for the transformation type)
-        y_title = transformation if len(selected_variables) > 1 else y_axis_label
-
-        # Create the plot using Plotly Express
-        fig = px.line(
-            plot_df,
-            x='Year',
-            y='Value',
-            color='Variable', # Color lines by variable name
-            title=f"{transformation} for {selected_country}",
-            markers=True # Optional: Add markers to points
-        )
-
-        fig.update_layout(
-            xaxis_title="Year",
-            yaxis_title=y_title,
-            legend_title="Variable",
-            height=600 # Adjust height as needed
-        )
-
-        # Display the plot in Streamlit
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("No data available to plot for the selected variables, time period, and transformation.")
+    if charts_plotted == 0 and selected_variables:
+         st.warning("No charts could be generated based on the current selections and data.")
