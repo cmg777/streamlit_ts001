@@ -87,6 +87,18 @@ selected_variables = st.sidebar.multiselect(
     default=available_variables # Default to all available variables initially
 )
 
+# --- Attribution Section in Sidebar ---
+st.sidebar.markdown("---") # Separator line
+st.sidebar.markdown(
+    """
+    **Data:** Feenstra, Robert C., Robert Inklaar and Marcel P. Timmer (2015),
+    "The Next Generation of the Penn World Table" *American Economic Review*,
+    105(10), 3150-3182, available for download at [www.ggdc.net/pwt](https://www.ggdc.net/pwt).
+
+    **Visualization:** Carlos Mendez ([carlos-mendez.org](https://carlos-mendez.org))
+    """
+)
+
 # --- Data Processing & Plotting ---
 st.header(f"Individual Plots for {selected_country} ({start_year}-{end_year})")
 
@@ -189,24 +201,19 @@ else:
         try:
             df_wide = final_df_long.pivot(index='Year', columns='Variable', values='Value')
         except Exception as e:
-            # Handle potential duplicate Year-Variable pairs if logic upstream changes
             st.error(f"Error pivoting data for download: {e}. Using long format instead.")
-            df_wide = final_df_long # Fallback to long format if pivot fails
+            df_wide = final_df_long
 
-        if 'Year' not in df_wide.columns: # If pivot was successful, Year is the index
-             df_wide = df_wide.reset_index() # Make Year a column
+        if 'Year' not in df_wide.columns:
+             df_wide = df_wide.reset_index()
 
         # 3. Add Country column
         df_wide['Country'] = selected_country
 
-        # 4. Reorder columns: Year, Country, then variables in the specified order
-        # Get the variable columns actually present after pivoting and filtering
+        # 4. Reorder columns
         present_vars_in_order = [var for var in VARIABLE_ORDER if var in df_wide.columns]
-        # Define final column order
         final_column_order = ['Year', 'Country'] + present_vars_in_order
-        # Select and reorder
         df_wide_download = df_wide[final_column_order]
-
 
         # Prepare filenames
         country_short = selected_country.split(" ")[0].replace(",", "").replace("(", "").replace(")", "")
@@ -228,10 +235,8 @@ else:
             # Stata Download Button
             stata_buffer = io.BytesIO()
             try:
-                # Clean column names for Stata compatibility (basic cleaning)
                 clean_columns = {col: col.replace('(','').replace(')','').replace('.','').replace('$','').replace('%','pct').replace(' ','_')[:32] for col in df_wide_download.columns}
                 df_stata_download = df_wide_download.rename(columns=clean_columns)
-
                 df_stata_download.to_stata(stata_buffer, write_index=False, version=118)
                 stata_buffer.seek(0)
                 st.download_button(
